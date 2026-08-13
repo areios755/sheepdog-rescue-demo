@@ -18,9 +18,10 @@
     .video-shell{padding:12px;border:1px solid rgba(42,216,238,.38);border-radius:24px;background:rgba(8,20,35,.88);box-shadow:0 28px 90px rgba(0,0,0,.55),0 0 48px rgba(42,216,238,.10)}
     video{display:block;width:100%;aspect-ratio:16/9;border-radius:15px;background:#000}
     .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:28px 0}.card{background:rgba(11,25,43,.82);border:1px solid rgba(145,165,188,.2);border-radius:18px;padding:22px}.card strong{font-size:30px;color:var(--green)}.card span{display:block;color:var(--muted);margin-top:5px}
-    .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:14px;text-decoration:none;font-weight:800}.primary{background:var(--cyan);color:#04101b}.secondary{border:1px solid rgba(42,216,238,.5);color:var(--cyan);background:rgba(42,216,238,.08)}
+    .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:14px;text-decoration:none;font-weight:800;border:0;font:inherit;cursor:pointer}.button:disabled{opacity:.55;cursor:wait}.primary{background:var(--cyan);color:#04101b}.secondary{border:1px solid rgba(42,216,238,.5);color:var(--cyan);background:rgba(42,216,238,.08)}
+    .save-help{margin:12px 0 0;color:var(--muted);font-size:14px;line-height:1.6}.save-status{min-height:22px;margin:8px 0 0;color:var(--green);font-size:14px}
     .note{margin-top:30px;color:var(--muted);font-size:14px}.team{margin-top:44px;padding-top:24px;border-top:1px solid rgba(145,165,188,.18);display:flex;justify-content:space-between;gap:16px;color:var(--muted)}
-    @media(max-width:760px){main{padding:28px 14px 50px}.grid{grid-template-columns:1fr}.team{flex-direction:column}}
+    @media(max-width:760px){main{padding:28px 14px 50px}.grid{grid-template-columns:1fr}.team{flex-direction:column}.actions .button{width:100%}}
   </style>
 </head>
 <body>
@@ -42,12 +43,89 @@
     <div class="card"><strong>0</strong><span>安全違規</span></div>
   </section>
   <section class="actions">
-    <a class="button primary" href="sheepdog-rescue-2026.mp4" download>下載說明影片</a>
+    <button class="button primary" id="saveToIphone" type="button">iPhone：儲存影片到相簿</button>
+    <button class="button secondary" id="downloadFile" type="button">下載 MP4 檔案</button>
     <a class="button secondary" href="https://swarm-commander-web-1044395274070.asia-east1.run.app/" target="_blank" rel="noopener">開啟互動模擬器</a>
     <a class="button secondary" href="transcript.txt" target="_blank">閱讀逐字稿</a>
   </section>
+  <p class="save-help">iPhone：點「儲存影片到相簿」後，系統會先準備影片並開啟分享選單；再選「儲存影片」即可放進「照片」App。若裝置不支援檔案分享，系統會自動改用下載方式。</p>
+  <p class="save-status" id="saveStatus" aria-live="polite"></p>
   <p class="note">影片中的地圖、載具與事件均為確定性模擬或概念視覺，非實機部署影像。模擬包含 RF blackout、單機故障、短暫全斷線、角色交接與多鏈路降級等驗證情境。</p>
   <footer class="team"><span>團隊：韌行者</span><span>當網路不再可靠，協作不能停止。</span></footer>
 </main>
+<script>
+  const VIDEO_URL = 'sheepdog-rescue-2026.mp4';
+  const VIDEO_NAME = 'sheepdog-rescue-2026.mp4';
+  const saveButton = document.getElementById('saveToIphone');
+  const downloadButton = document.getElementById('downloadFile');
+  const statusEl = document.getElementById('saveStatus');
+  let cachedBlob = null;
+
+  async function getVideoBlob() {
+    if (cachedBlob) return cachedBlob;
+    statusEl.textContent = '正在準備影片…';
+    const response = await fetch(VIDEO_URL, { cache: 'force-cache' });
+    if (!response.ok) throw new Error(`影片讀取失敗 (${response.status})`);
+    cachedBlob = await response.blob();
+    return cachedBlob;
+  }
+
+  function forceDownload(blob) {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = VIDEO_NAME;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  }
+
+  async function withBusy(button, task) {
+    const original = button.textContent;
+    button.disabled = true;
+    try {
+      await task();
+    } catch (error) {
+      console.error(error);
+      statusEl.textContent = '無法直接儲存，請改按「下載 MP4 檔案」。';
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  saveButton.addEventListener('click', () => withBusy(saveButton, async () => {
+    saveButton.textContent = '正在準備影片…';
+    const blob = await getVideoBlob();
+    const file = new File([blob], VIDEO_NAME, { type: blob.type || 'video/mp4' });
+
+    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+      statusEl.textContent = '請在分享選單選「儲存影片」。';
+      try {
+        await navigator.share({ files: [file], title: 'SHEEPDOG RESCUE' });
+        statusEl.textContent = '分享選單已完成。若已選「儲存影片」，可到「照片」App 查看。';
+        return;
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          statusEl.textContent = '已取消。您可以再按一次重新開啟分享選單。';
+          return;
+        }
+        console.warn('File share unavailable, falling back to download.', error);
+      }
+    }
+
+    forceDownload(blob);
+    statusEl.textContent = '裝置不支援直接分享，已改為下載 MP4。';
+  }));
+
+  downloadButton.addEventListener('click', () => withBusy(downloadButton, async () => {
+    downloadButton.textContent = '正在準備下載…';
+    const blob = await getVideoBlob();
+    forceDownload(blob);
+    statusEl.textContent = '已送出下載；請到「檔案」App 的「下載項目」查看。';
+  }));
+</script>
 </body>
 </html>
