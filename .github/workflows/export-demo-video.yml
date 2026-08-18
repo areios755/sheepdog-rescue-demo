@@ -15,6 +15,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Record workflow run ID immediately
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > voice-run-id.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add voice-run-id.txt
+          git commit -m "chore: record narration run $GITHUB_RUN_ID"
+          git push
+
       - name: Install neural TTS client
         run: python -m pip install --upgrade edge-tts
 
@@ -60,15 +69,6 @@ jobs:
           PY
           python /tmp/build_narration.py
           cat narration/manifest.json
-
-      - name: Record workflow run ID
-        run: |
-          printf '%s\n' "$GITHUB_RUN_ID" > voice-run-id.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add voice-run-id.txt
-          git commit -m "chore: record narration run $GITHUB_RUN_ID"
-          git push
 
       - name: Upload narration artifact
         uses: actions/upload-artifact@v4
