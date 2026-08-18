@@ -1,0 +1,27 @@
+name: Export SHEEPDOG demo video
+
+on:
+  push:
+    paths:
+      - '.github/workflows/export-demo-video.yml'
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Inspect source video
+        run: |
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 sheepdog-rescue-2026.mp4
+      - name: Upload source video
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheepdog-rescue-source-video
+          path: sheepdog-rescue-2026.mp4
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
