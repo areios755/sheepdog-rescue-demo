@@ -10,13 +10,21 @@ jobs:
   export:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Inspect source video
         run: |
-          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 sheepdog-rescue-2026.mp4
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 sheepdog-rescue-2026.mp4 | tee source-video-info.txt
+      - name: Record workflow run ID
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > export-run-id.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add export-run-id.txt source-video-info.txt
+          git commit -m "chore: record demo export run $GITHUB_RUN_ID"
+          git push
       - name: Upload source video
         uses: actions/upload-artifact@v4
         with:
