@@ -1,4 +1,4 @@
-name: Export SHEEPDOG demo video
+name: Build English narration for SHEEPDOG simulator demo
 
 on:
   push:
@@ -7,29 +7,74 @@ on:
   workflow_dispatch:
 
 jobs:
-  export:
+  narration:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Inspect source video
+
+      - name: Install neural TTS client
+        run: python -m pip install --upgrade edge-tts
+
+      - name: Generate measured male narration segments
         run: |
-          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 sheepdog-rescue-2026.mp4 | tee source-video-info.txt
+          mkdir -p narration
+          cat > /tmp/build_narration.py <<'PY'
+          import asyncio, json, subprocess
+          from pathlib import Path
+          import edge_tts
+
+          segments = [
+              "In disaster response, coordination is the scarce resource. When roads and networks fail, the mission still needs a team that can work together.",
+              "Central control, fixed routes, and a single link create fragile missions. Lose telemetry or one vehicle, and the operation can stall.",
+              "SHEEPDOG RESCUE converts an objective into roles: overwatch, sweep, containment, and reserve. It assigns and reassigns them as capability, battery, terrain, and connectivity change.",
+              "Communication degrades in layers: five-G, edge, ground, subsea, and satellite. When links disappear, the team falls back toward local autonomy.",
+              "This is the working deterministic simulator: four drones, ten moving targets. The team redirects movement and closes escape routes through a radio blackout, a vehicle failure, and a temporary total disconnect.",
+              "The remaining agents take over. Three vehicles achieve one hundred percent terminal aggregation, zero escapes, and zero safety violations. Every decision is preserved for replay and audit.",
+              "The first deployment path is controlled disaster-response training for fire, search and rescue, industrial incidents, and remote regions.",
+              "When the network becomes unreliable, coordination must continue. SHEEPDOG RESCUE. Every vehicle knows what to do next."
+          ]
+
+          preferred = ["en-US-ChristopherNeural", "en-US-GuyNeural", "en-GB-RyanNeural"]
+
+          async def main():
+              voices = {v["ShortName"] for v in await edge_tts.list_voices()}
+              voice = next((v for v in preferred if v in voices), None)
+              if not voice:
+                  raise RuntimeError("No preferred male neural voice is available")
+              manifest = {"voice": voice, "rate": "-12%", "pitch": "-6Hz", "segments": []}
+              for i, text in enumerate(segments, 1):
+                  out = Path("narration") / f"segment_{i:02d}.mp3"
+                  communicate = edge_tts.Communicate(text=text, voice=voice, rate="-12%", pitch="-6Hz", volume="+0%")
+                  await communicate.save(str(out))
+                  duration = float(subprocess.check_output([
+                      "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                      "-of", "default=noprint_wrappers=1:nokey=1", str(out)
+                  ], text=True).strip())
+                  manifest["segments"].append({"index": i, "text": text, "file": out.name, "duration": duration})
+              Path("narration/manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+          asyncio.run(main())
+          PY
+          python /tmp/build_narration.py
+          cat narration/manifest.json
+
       - name: Record workflow run ID
         run: |
-          printf '%s\n' "$GITHUB_RUN_ID" > export-run-id.txt
+          printf '%s\n' "$GITHUB_RUN_ID" > voice-run-id.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add export-run-id.txt source-video-info.txt
-          git commit -m "chore: record demo export run $GITHUB_RUN_ID"
+          git add voice-run-id.txt
+          git commit -m "chore: record narration run $GITHUB_RUN_ID"
           git push
-      - name: Upload source video
+
+      - name: Upload narration artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sheepdog-rescue-source-video
-          path: sheepdog-rescue-2026.mp4
+          name: sheepdog-english-neural-narration
+          path: narration/
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
