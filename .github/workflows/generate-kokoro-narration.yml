@@ -1,0 +1,97 @@
+name: Generate natural SHEEPDOG narration
+
+on:
+  push:
+    paths:
+      - '.github/workflows/generate-kokoro-narration.yml'
+  workflow_dispatch:
+
+jobs:
+  narration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Record workflow run ID
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > kokoro-run-id.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kokoro-run-id.txt
+          git commit -m "chore: record Kokoro narration run $GITHUB_RUN_ID" || true
+          git push
+
+      - name: Install Kokoro TTS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y espeak-ng
+          python -m pip install --upgrade pip
+          python -m pip install "kokoro>=0.9.4" soundfile
+
+      - name: Generate natural male narration segments
+        run: |
+          mkdir -p kokoro_narration
+          cat > /tmp/generate_narration.py <<'PY'
+          import json
+          from pathlib import Path
+          import numpy as np
+          import soundfile as sf
+          from kokoro import KPipeline
+
+          segments = [
+              "This is the SHEEPDOG simulator running on GCP. It shows one operator coordinating four unmanned aircraft inside a five-hundred-meter tactical cell.",
+              "The operator sets the mission intent. SHEEPDOG reads each Capability Passport: speed, sensors, endurance, link quality, and attrition tolerance.",
+              "One aircraft maintains surveillance. Another diverts and escorts. A third pressures the flank. The fourth accepts the most exposed route. Roles change with the mission.",
+              "Scarce capabilities are held for the moments that require them. Low-cost, replaceable platforms take on the more attritable work. This is tactical economics.",
+              "When a link degrades, energy runs low, or one platform fails, the mission continues. SHEEPDOG recalculates the plan, swaps roles, and brings reserves forward.",
+              "One operator manages intent, risk, and authorization boundaries, without flying four joysticks at once.",
+              "The same control logic scales into SHEEPDOG SKY MESH. High-altitude nodes divide relay, sensing, weather, decoy, and reserve functions.",
+              "When nodes are lost, the system identifies the regional capability gap, activates suitable reserves, and rebuilds the local mesh.",
+              "Altitude becomes a pre-positioned tactical resource. Location, energy, link quality, and payload determine which nodes stay silent, take over relay, or move into reserve.",
+              "SHEEPDOG. Mission continuity by design."
+          ]
+
+          sample_rate = 24000
+          pipeline = KPipeline(lang_code='a')
+          manifest = {
+              "engine": "Kokoro",
+              "voice": "am_michael",
+              "speed": 0.92,
+              "sample_rate": sample_rate,
+              "segments": []
+          }
+
+          for index, text in enumerate(segments, 1):
+              audio_parts = []
+              for _, _, audio in pipeline(text, voice='am_michael', speed=0.92, split_pattern=r'\n+'):
+                  audio_parts.append(np.asarray(audio, dtype=np.float32))
+              if not audio_parts:
+                  raise RuntimeError(f"No audio generated for segment {index}")
+              audio = np.concatenate(audio_parts)
+              output = Path('kokoro_narration') / f'segment_{index:02d}.wav'
+              sf.write(output, audio, sample_rate, subtype='PCM_16')
+              manifest['segments'].append({
+                  "index": index,
+                  "text": text,
+                  "file": output.name,
+                  "duration": round(len(audio) / sample_rate, 3)
+              })
+
+          Path('kokoro_narration/manifest.json').write_text(
+              json.dumps(manifest, indent=2), encoding='utf-8'
+          )
+          PY
+          python /tmp/generate_narration.py
+          cat kokoro_narration/manifest.json
+
+      - name: Upload narration artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sheepdog-kokoro-natural-male-narration
+          path: kokoro_narration/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
